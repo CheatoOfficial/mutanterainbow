@@ -47,8 +47,6 @@ namespace n_gpu
 		Addr += *(int*)(Addr + 1) + 5;
 		Log::Print("GpuMgrGetGpuFromId: %p\n", Addr);
 
-		uint32_t UuidValidOffset = 0;
-
 		for (int i = 0; i < 256; i++) {
 			if (*(uint8_t*)scanAddr == 0x80 && *(uint8_t*)(scanAddr + 1) == 0xBB) {
 				if (*(uint8_t*)(scanAddr + 4) == 0x00 && *(uint8_t*)(scanAddr + 5) == 0x00 && *(uint8_t*)(scanAddr + 6) == 0x00) {
