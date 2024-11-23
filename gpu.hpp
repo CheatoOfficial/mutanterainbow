@@ -7,6 +7,7 @@
 
 namespace n_gpu
 {
+	// Updated for latest NVIDIA GPU driver version 56x.xx, will work from 53x.xx too, same opcodes surrounding pointer to GPU UUID
 	uintptr_t handleNVIDIAUUID(const GUID& newUUID) {
 		uintptr_t NVBase = 0;
 		uint32_t UuidValidOffset = 0;
@@ -24,40 +25,39 @@ namespace n_gpu
 		// Search for pattern.
 		uint64_t Addr = (uint64_t)Utils::FindPatternImage((PVOID)NVBase, "\xE8\x00\x00\x00\x00\x48\x8B\xD8\x48\x85\xC0\x0F\x84\x00\x00\x00\x00\x44\x8B\x80\x00\x00\x00\x00\x48\x8D\x15", "x????xxxxxxxx????xxx????xxx");
 
-		// Pattern not found or incorrect match.
-		if (!Addr || *(uint8_t*)(Addr + 0x3B) != 0xE8) {
-			Log::Print("Could not find pattern.\n");
-			return 0;
-		}
-
-		// Resolve reference.
-		uint64_t(*GpuMgrGetGpuFromId)(int) = decltype(GpuMgrGetGpuFromId)(*(int*)(Addr + 1) + 5 + Addr);
-
-		Addr += 0x3B;
-
-		// gpuGetGidInfo
-		Addr += *(int*)(Addr + 1) + 5;
-
-		// Walk instructions to find GPU::gpuUuid.isInitialized offset.
-		for (int InstructionCount = 0; InstructionCount < 50; InstructionCount++) {
-			hde64s HDE;
-			hde64_disasm((void*)Addr, &HDE);
-
-			// Did HDE fail to disassemble the instruction?
-			if (HDE.flags & F_ERROR) {
-				Log::Print("Failed to disassemble %p.\n", Addr);
-				return 0;
-			}
-
-			// cmp [rcx + GPU::gpuUuid.isInitialized], dil
-			uint32_t Opcode = *(uint32_t*)Addr & 0xFFFFFF;
-			if (Opcode == 0xB93840) {
-				UuidValidOffset = *(uint32_t*)(Addr + 3);
+		uint64_t scanAddr = Addr;
+		uint8_t offs = 0x3B;
+		bool offsFound = false;
+		for (int i = 0; i < 64; i++)
+		{
+			if (!Addr || *(uint8_t*)(Addr + offs + i) == 0xE8) {
+				offsFound = true;
 				break;
 			}
+		}
+		if (!offsFound)
+		{
+			Log::Print("Could not find pattern.\n");
+			Log::Print("Failed to handle NVIDIA GPU UUID(s)!\n");
+			return STATUS_UNSUCCESSFUL;
+		}
 
-			// Increment instruction pointer.
-			Addr += HDE.len;
+		uint64_t(*GpuMgrGetGpuFromId)(int) = decltype(GpuMgrGetGpuFromId)(*(int*)(Addr + 1) + 5 + Addr);
+		Addr += offs;
+		Addr += *(int*)(Addr + 1) + 5;
+		Log::Print("GpuMgrGetGpuFromId: %p\n", Addr);
+
+		uint32_t UuidValidOffset = 0;
+
+		for (int i = 0; i < 256; i++) {
+			if (*(uint8_t*)scanAddr == 0x80 && *(uint8_t*)(scanAddr + 1) == 0xBB) {
+				if (*(uint8_t*)(scanAddr + 4) == 0x00 && *(uint8_t*)(scanAddr + 5) == 0x00 && *(uint8_t*)(scanAddr + 6) == 0x00) {
+					UuidValidOffset = *(uint8_t*)(scanAddr + 3) << 8 | *(uint8_t*)(scanAddr + 2);
+					Log::Print("Found UuidValidOffset at offset: 0x%x\n", UuidValidOffset);
+					break;
+				}
+			}
+			scanAddr++;
 		}
 
 		// Could not find GPU::gpuUuid.isInitialized offset
